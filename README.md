@@ -1,14 +1,27 @@
 # Pun Generating Models: Aligning Your Model with Humor Preferences
+
 ## 简介
+
 在本次研究中，我们深入探索了如何通过结构化与分阶段的训练方式，使大语言模型能更好地贴合人类对双关语的偏好。我们先实施了 PGCL - DPO 方法，而后将其优化为 PGCL - DPOP，这一方法有效应对了灾难性遗忘等难题，提升了模型生成有意义双关语的能力。实验数据表明，PGCL - DPOP 在双关结构的精准度与幽默效果的呈现上，均显著超越了基线方法。本研究充分展现了强化学习与偏好优化在幽默生成这类创造性语言任务中的潜力，为后续相关研究与应用拓展了思路、奠定了基础。
 
-本文档仅介绍环境配置、数据集处理、模型训练、代码实现等相关内容，具体实验结果和分析请参考 [实验报告](report.md)。
+本文档仅介绍环境配置、数据集处理、模型训练、代码实现等相关内容，具体实验结果和分析请参考 [实验报告](report.pdf)。
+
+## 实验环境
+
+本次实验在以下环境中进行：
+
+- 操作系统：Ubuntu 22.04
+- Python 版本：3.10
+- CUDA 版本：12.4
+- GPU：NVIDIA A800 80GB
 
 ## 安装及配置
+
 ### 安装LLaMA-Factory
 
 ```bash
-cd PGCL
+cd PGM
+conda create -n pgm python=3.10
 pip install -e ".[torch,metrics]"
 ```
 
@@ -21,6 +34,7 @@ pip install vllm==0.5.4
 ```
 
 ### Checkpoint 下载
+
 本次实验选择了 Qwen2.5-3B 作为基础模型，您可以通过以下命令下载模型权重：
 
 ```bash
@@ -34,14 +48,14 @@ bash ckpt_download.sh
 ## 训练流程
 
 + 数据准备
-    + 收集和清洗数据集
-    + 数据增强
+  + 收集和清洗数据集
+  + 数据增强
 + 模型训练
-    + 超参数调优
-    + 训练监控
+  + 超参数调优
+  + 训练监控
 + 评估与优化
-    + 性能评估
-    + 模型优化
+  + 性能评估
+  + 模型优化
 
 ## 数据集
 
@@ -51,14 +65,15 @@ bash ckpt_download.sh
 
 + 平均长度
 + 语料/句子多样性
-    + Dist1: 语料/句子中独特单词的比例
-    + Dist2: 语料/句子中独特双词组的比例
+  + Dist1: 语料/句子中独特单词的比例
+  + Dist2: 语料/句子中独特双词组的比例
 + 结构成功率: 模型自动判断双关语是否在句子中使用
 + 双关语成功率: 人工判断双关语是否正确使用
 
 ## 实验过程
 
 ### 前置参数
+
 在开始实验之前，我们需要设置一些前置参数，包括模型名称、模板、数据集类型等。以下是一个示例配置：
 
 ```bash
@@ -69,13 +84,14 @@ template=qwen
 
 ### 数据预处理
 
-在正式训练之前，我们对数据集进行了清洗和格式化处理。我们将双关语数据集拆分为同形异义双关语和同音异义双关语两部分，分别存储在`homographic.json`和`homophonic.json`两个文件中，并将其输出到`data/`目录下，以便后续针对模型在不同类型双关语生成的能力进行优化和评估。
+在正式训练之前，我们对数据集进行了清洗和格式化处理。我们将双关语数据集拆分为同形异义双关语和同音异义双关语两部分，分别存储在 `homographic.json`和 `homophonic.json`两个文件中，并将其输出到 `data/`目录下，以便后续针对模型在不同类型双关语生成的能力进行优化和评估。
 
 ```bash
 python process_dataset.py --output_dir ./data --repeat_times 10
 ```
 
 ### 模型推理
+
 DPO 方法的核心在于通过对比学习和动态偏好优化来提升模型生成双关语的能力。因此，我们首先需要对模型进行推理，以生成初步的双关语句子。我们使用 `vllm` 进行批量推理，命令如下：
 
 ```bash
@@ -104,6 +120,7 @@ python vllm_infer.py \
 ```
 
 ### DPO数据集构建
+
 在LLama-Factory中，使用DPO方法需要构建一个特定格式的数据集（prompt + chosen/rejected），例如[dpo_zh_demo.json](/home/amax/liujingyuan/PGCL/data/dpo_zh_demo.json)。因此，我们需要将生成的双关语句子转换为DPO格式。我们可以使用以下命令来完成这一任务：
 
 ```bash
@@ -163,21 +180,27 @@ llamafactory-cli train \
 ```
 
 ### 第二阶段：幽默偏好对齐
+
 在第二阶段，我们进一步优化模型，使其能够生成更具幽默感的双关语。我们使用自定义的Humor DPO方法，构建出了一个三元组数据集，其中包含了符合双关语结构且具有幽默感的句子$y^{+}$，符合双关语结构但不具幽默感的句子$y^{*}$，以及不符合双关语结构的句子$y_{h^*}^{-}$。
 
 具体公式如下：
+
 $$
 r_{\phi}^{+}(\theta) = \beta \log \frac{\pi_{\theta}(y^{+}|x)}{\pi_{\phi}(y^{+}|x)}
 $$
+
 $$
 r_{h^*}^{-}(\theta) = \beta \log \frac{\pi_{\theta}(y_{h^*}^{-}|x)}{\pi_{\phi}(y_{h^*}^{-}|x)}
 $$
+
 $$
 r^{*}(\theta) = \beta \log \frac{\pi_{\theta}(y^{*}|x)}{\pi_{\phi}(y^{*}|x)}
 $$
+
 $$
 \mathcal{L}_{I - humor - dpo}(\theta) = -\log\sigma(r_{\phi}^{+}(\theta) - r^{*}(\theta)) - \gamma \log\sigma(r^{*}(\theta) - r_{h^*}^{-}(\theta))
 $$
+
 其中，$\gamma$ 是一个超参数，用于控制结构偏好和幽默偏好的平衡。
 
 我们使用以下命令进行训练：
@@ -230,6 +253,7 @@ llamafactory-cli train \
 ```
 
 ### 自动化脚本
+
 为了简化训练流程，我们提供了一个自动化脚本 `train.sh`，您可以直接运行该脚本来完成模型的训练和评估。脚本会自动处理数据预处理、模型推理、DPO数据集构建以及模型训练等步骤。
 
 ```bash
@@ -245,6 +269,7 @@ python evaluate.py ${filename}.json
 ```
 
 同时，我们还可以使用以下命令调用模型进行推理，更加直观地查看模型生成的双关语句子：
+
 ```bash
 llamafactory-cli chat \
     --model_name_or_path ./LLM/${model} \
@@ -253,6 +278,7 @@ llamafactory-cli chat \
     --infer_backend huggingface \
     --trust_remote_code True
 ```
+
 也可以使用LLaMA-Factory提供的可视化界面进行交互式推理：
 
 ```bash
@@ -266,6 +292,7 @@ llamafactory-cli webui
 以下仅为重点修改部分，一些细节修改请参考代码仓库，具体可以参考 [`src/llamafactory/train/dpo/workflow.py`](src/llamafactory/train/dpo/workflow.py) 中的运行流程，找到对应的函数和类。
 
 首先，需要在 [`src/llamafactory/data/dataset.py`](src/llamafactory/data/dataset.py) 中添加新的数据集配置，以支持同形异义双关语和同音异义双关语的生成。
+
 ```json
 "homographic_cn_generate":{
 "file_name":"homographic_cn.json",
@@ -341,7 +368,7 @@ def dpop_loss(self, policy_chosen_logps: "torch.Tensor", policy_rejected_logps: 
 def humor_loss(self, policy_chosen_logps: "torch.Tensor", policy_rejected_logps: "torch.Tensor", reference_chosen_logps: "torch.Tensor", reference_rejected_logps: "torch.Tensor", policy_gold_logps: "torch.Tensor", reference_gold_logps: "torch.Tensor") -> "torch.Tensor":
     pi_logratios = policy_chosen_logps - policy_rejected_logps
     ref_logratios = reference_chosen_logps - reference_rejected_logps
-    
+  
     logits = pi_logratios - ref_logratios
 
     pi_gold_logratios = policy_gold_logps - policy_chosen_logps
@@ -407,7 +434,7 @@ def compute_preference_loss(
     return losses, chosen_rewards, rejected_rewards, gold_rewards if self.loss_type == "humor" else None
 ```
 
-由于`compute_preference_loss`返回值个数的变化，我们还需要在 [`src/llamafactory/train/dpo/trainer.py`](src/llamafactory/train/dpo/trainer.py) 中修改 `get_batch_loss_metrics` 方法，以适应新的返回值。
+由于 `compute_preference_loss`返回值个数的变化，我们还需要在 [`src/llamafactory/train/dpo/trainer.py`](src/llamafactory/train/dpo/trainer.py) 中修改 `get_batch_loss_metrics` 方法，以适应新的返回值。
 
 ```python
 def get_batch_loss_metrics(
@@ -461,7 +488,7 @@ def get_batch_loss_metrics(
     if self.loss_type == "orpo":
         metrics[f"{prefix}sft_loss"] = sft_loss.mean().item()
         metrics[f"{prefix}odds_ratio_loss"] = ((losses - sft_loss) / self.beta).mean().item()
-    
+  
     return losses.mean(), metrics
 ```
 
@@ -534,7 +561,7 @@ def concatenated_inputs(
                     ),
                     dim=0,
                 ).to(device=device)
-    
+  
     if is_encoder_decoder:
     ···
     return concatenated_batch
@@ -542,7 +569,7 @@ def concatenated_inputs(
 
 在以sharegpt格式读取数据时，我们也需要对三元组数据进行处理，因此需要对[`src/llamafactory/data`](src/llamafactory/data)目录下的一系列文件进行修改。
 
-在[`src/llamafactory/data/parser.py`](src/llamafactory/data/parser.py)中，对`DatasetAttr`类进行了修改，以支持三元组数据的读取。
+在[`src/llamafactory/data/parser.py`](src/llamafactory/data/parser.py)中，对 `DatasetAttr`类进行了修改，以支持三元组数据的读取。
 
 ```python
 class DatasetAttr:
@@ -819,7 +846,7 @@ class PairwiseDatasetProcessor(DatasetProcessor):
             print(f"gold_labels:\n{self.tokenizer.decode(valid_gold_labels, skip_special_tokens=False)}")
 ```
 
-最后，在 [`src/llamafactory/hparams/finetuning_args.py`](src/llamafactory/hparams/finetuning_args.py) 中添加了新的超参数，以支持直接通过`llamafactory-cli train`终端命令行进行调用。
+最后，在 [`src/llamafactory/hparams/finetuning_args.py`](src/llamafactory/hparams/finetuning_args.py) 中添加了新的超参数，以支持直接通过 `llamafactory-cli train`终端命令行进行调用。
 
 ```python
 class RLHFArguments:
